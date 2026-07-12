@@ -98,3 +98,60 @@ fn now_millis() -> u128 {
         .map(|d| d.as_millis())
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn media_state_serializes_with_type_tag() {
+        // The frontend switches on the `type` field, so pin the exact shape.
+        let kind = EventKind::MediaState {
+            playing: true,
+            track: Some("Highway Star".to_string()),
+        };
+        let json = serde_json::to_value(&kind).unwrap();
+        assert_eq!(json["type"], "media_state");
+        assert_eq!(json["playing"], true);
+        assert_eq!(json["track"], "Highway Star");
+    }
+
+    #[test]
+    fn voice_command_round_trips() {
+        let kind = EventKind::VoiceCommand {
+            transcript: "play music".to_string(),
+        };
+        let json = serde_json::to_string(&kind).unwrap();
+        let back: EventKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(kind, back);
+    }
+
+    #[test]
+    fn event_envelope_round_trips_over_json() {
+        let event = Event::new(
+            ServiceId::Media,
+            EventKind::MediaState {
+                playing: false,
+                track: None,
+            },
+        );
+        let json = serde_json::to_string(&event).unwrap();
+        let back: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, back);
+        assert_eq!(back.source, ServiceId::Media);
+    }
+
+    #[test]
+    fn null_track_omitted_value_deserializes() {
+        // A media_state with an explicit null track should parse to None.
+        let json = r#"{ "type": "media_state", "playing": false, "track": null }"#;
+        let kind: EventKind = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            kind,
+            EventKind::MediaState {
+                playing: false,
+                track: None
+            }
+        );
+    }
+}
