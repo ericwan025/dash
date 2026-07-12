@@ -15,8 +15,10 @@
 
 pub mod api;
 pub mod error;
+pub mod service;
 pub mod types;
 
 pub use api::v1;
 pub use error::ServiceError;
+pub use service::MediaService;
 pub use types::{PlaybackState, Track};
