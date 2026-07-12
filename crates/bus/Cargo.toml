@@ -1,0 +1,16 @@
+[package]
+name = "dash-bus"
+description = "In-process pub/sub message bus for dash, built on tokio broadcast channels."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+dash-core = { path = "../core" }
+tokio = { workspace = true }
+
+[dev-dependencies]
+# Enable the macros + rt for #[tokio::test] in this crate's tests.
+tokio = { workspace = true }
