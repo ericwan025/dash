@@ -1,0 +1,26 @@
+[package]
+name = "dash-gateway"
+description = "WebSocket gateway bridging the internal dash bus to a Flutter frontend."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "dash-gateway"
+path = "src/main.rs"
+
+[dependencies]
+dash-core = { path = "../core" }
+dash-bus = { path = "../bus" }
+tokio = { workspace = true }
+axum = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
