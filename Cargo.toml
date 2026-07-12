@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+]
+
+# Shared dependency versions live here so every crate stays in lockstep.
+# Individual crates pull these in with `dep.workspace = true`.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["dash contributors"]
+repository = "https://github.com/ericwan/dash"
+
+[workspace.dependencies]
+# Async runtime + primitives
+tokio = { version = "1", features = ["full"] }
+# Error handling
+thiserror = "2"
+# Serialization (JSON message schema across the bus + gateway)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Async trait support for versioned service traits
+async-trait = "0.1"
+# Time / ids for events
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Faster, smaller release binaries for the demo.
+[profile.release]
+lto = "thin"
+codegen-units = 1
