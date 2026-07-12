@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/core",
     "crates/bus",
+    "crates/media",
 ]
 
 # Shared dependency versions live here so every crate stays in lockstep.

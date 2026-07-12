@@ -9,7 +9,7 @@ use thiserror::Error;
 
 /// Errors originating in shared infrastructure rather than a specific service's
 /// domain logic.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum CoreError {
     /// An [`Event`](crate::Event) payload could not be (de)serialized to/from
     /// JSON. Carries the underlying `serde_json` message.
