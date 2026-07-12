@@ -11,6 +11,10 @@
 //! The router is built in [`app`] (rather than inline in `main`) so integration
 //! tests can bind it to an ephemeral port and connect a real client.
 
+pub mod protocol;
+
+pub use protocol::{ClientCommand, ServerEvent};
+
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     response::Response,
