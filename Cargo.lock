@@ -164,6 +164,8 @@ dependencies = [
  "dash-bus",
  "dash-core",
  "dash-media",
+ "dash-nav",
+ "dash-settings",
  "dash-voice",
  "futures-util",
  "serde",

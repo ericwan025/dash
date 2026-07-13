@@ -16,6 +16,8 @@ dash-core = { path = "../core" }
 dash-bus = { path = "../bus" }
 dash-media = { path = "../media" }
 dash-voice = { path = "../voice" }
+dash-nav = { path = "../nav" }
+dash-settings = { path = "../settings" }
 tokio = { workspace = true }
 axum = { workspace = true }
 futures-util = { workspace = true }
