@@ -3,6 +3,7 @@
 use dash_bus::Bus;
 use dash_core::{Event, EventKind, MediaAction, ServiceId};
 use dash_media::MediaService;
+use dash_voice::VoiceService;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,6 +50,40 @@ async fn bus_event_reaches_client_as_json() {
     .expect("timed out waiting for media_state");
 
     assert_eq!(frame["source"], "media");
+    assert_eq!(frame["playing"], true);
+    assert_eq!(frame["track"], "Highway Star");
+}
+
+#[tokio::test]
+async fn client_voice_command_drives_media_end_to_end() {
+    // Full pipeline: client -> gateway -> bus -> voice (NLU) -> media -> bus ->
+    // gateway -> client. Exercises the real voice + media services together.
+    let bus = Bus::new();
+    dash_voice::spawn(Arc::new(VoiceService::new()), bus.clone());
+    dash_media::spawn(Arc::new(MediaService::with_demo_tracks()), bus.clone());
+    let addr = spawn_gateway(bus.clone()).await;
+
+    let (mut ws, _) = connect_async(format!("ws://{addr}/ws")).await.unwrap();
+    // The UI's Play button sends a raw transcript, exactly like speech would.
+    ws.send(Message::Text(
+        r#"{ "type": "voice", "transcript": "play music" }"#.into(),
+    ))
+    .await
+    .unwrap();
+
+    let frame = timeout(Duration::from_secs(2), async {
+        loop {
+            if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if v["type"] == "media_state" {
+                    return v;
+                }
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for media_state");
+
     assert_eq!(frame["playing"], true);
     assert_eq!(frame["track"], "Highway Star");
 }
