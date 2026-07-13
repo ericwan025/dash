@@ -230,16 +230,40 @@ class _DashHomeState extends State<DashHome> {
   Widget _settingsCard() {
     return _card(
       title: 'Settings',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Render every setting the service has reported, in stable order.
+          _settingRow('volume', _settings['volume']),
+          _settingRow('theme', _settings['theme']),
+          _settingRow('units', _settings['units']),
+          const SizedBox(height: 12),
+          Row(children: [
+            _button(Icons.volume_up, 'Volume +', () {
+              _volume = (_volume % 10) + 1;
+              _client.setSetting('volume', _volume.toString());
+            }),
+            const SizedBox(width: 12),
+            _button(Icons.dark_mode, 'Toggle theme', () {
+              final next = _settings['theme'] == 'light' ? 'dark' : 'light';
+              _client.setSetting('theme', next);
+            }),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _settingRow(String key, String? value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Expanded(
-            child: Text('Volume: ${_settings['volume'] ?? '—'}',
-                style: const TextStyle(fontSize: 18)),
+          SizedBox(
+            width: 90,
+            child: Text(key, style: const TextStyle(color: Colors.white54)),
           ),
-          _button(Icons.volume_up, 'Volume +', () {
-            _volume = (_volume % 10) + 1;
-            _client.setSetting('volume', _volume.toString());
-          }),
+          Text(value ?? '—', style: const TextStyle(fontSize: 18)),
         ],
       ),
     );
