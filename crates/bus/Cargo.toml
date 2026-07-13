@@ -14,3 +14,9 @@ tokio = { workspace = true }
 [dev-dependencies]
 # Enable the macros + rt for #[tokio::test] in this crate's tests.
 tokio = { workspace = true }
+
+# Latency benchmark. `harness = false` means the bench provides its own `main`
+# (we roll a simple sampler rather than pulling in a benchmarking framework).
+[[bench]]
+name = "latency"
+harness = false
