@@ -76,7 +76,16 @@ async fn main() {
     let total: Duration = samples.iter().sum();
     let avg = total / samples.len() as u32;
 
+    // Sort for percentiles (nearest-rank).
+    samples.sort_unstable();
+    let pct = |p: f64| samples[((p / 100.0 * samples.len() as f64) as usize).min(samples.len() - 1)];
+
     println!("dash-bus publish -> subscriber latency");
     println!("  samples: {SAMPLES}");
     println!("  average: {avg:?}");
+    println!("  min:     {:?}", samples[0]);
+    println!("  p50:     {:?}", pct(50.0));
+    println!("  p90:     {:?}", pct(90.0));
+    println!("  p99:     {:?}", pct(99.0));
+    println!("  max:     {:?}", samples[samples.len() - 1]);
 }
