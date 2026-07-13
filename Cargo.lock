@@ -163,6 +163,7 @@ dependencies = [
  "axum",
  "dash-bus",
  "dash-core",
+ "dash-media",
  "futures-util",
  "serde",
  "serde_json",

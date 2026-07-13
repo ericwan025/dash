@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 dash-core = { path = "../core" }
 dash-bus = { path = "../bus" }
+dash-media = { path = "../media" }
 tokio = { workspace = true }
 axum = { workspace = true }
 futures-util = { workspace = true }
