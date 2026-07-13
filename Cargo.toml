@@ -6,6 +6,7 @@ members = [
     "crates/media",
     "crates/voice",
     "crates/nav",
+    "crates/settings",
     "crates/gateway",
 ]
 

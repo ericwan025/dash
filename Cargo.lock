@@ -196,6 +196,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dash-settings"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dash-bus",
+ "dash-core",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "dash-voice"
 version = "0.1.0"
 dependencies = [
