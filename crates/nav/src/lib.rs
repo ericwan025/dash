@@ -8,10 +8,12 @@
 
 pub mod api;
 pub mod error;
+pub mod runner;
 pub mod service;
 pub mod types;
 
 pub use api::v1;
 pub use error::ServiceError;
+pub use runner::{run, spawn};
 pub use service::NavService;
 pub use types::NavStatus;
