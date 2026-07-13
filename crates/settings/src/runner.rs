@@ -57,3 +57,62 @@ pub async fn run(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn set_setting_command_produces_settings_state() {
+        let bus = Bus::new();
+        let mut probe = bus.subscribe();
+        let handle = spawn(Arc::new(SettingsService::new()), bus.clone());
+
+        bus.publish(Event::new(
+            ServiceId::Gateway,
+            EventKind::SetSetting { key: "volume".into(), value: "07".into() },
+        ));
+
+        let (key, value) = timeout(Duration::from_secs(1), async {
+            loop {
+                let ev = probe.recv().await.unwrap();
+                if let EventKind::SettingsState { key, value } = ev.kind {
+                    assert_eq!(ev.source, ServiceId::Settings);
+                    return (key, value);
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for SettingsState");
+
+        assert_eq!(key, "volume");
+        // The runner emits the normalized value ("07" -> "7").
+        assert_eq!(value, "7");
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn invalid_setting_command_produces_no_state() {
+        let bus = Bus::new();
+        let mut probe = bus.subscribe();
+        let handle = spawn(Arc::new(SettingsService::new()), bus.clone());
+
+        bus.publish(Event::new(
+            ServiceId::Gateway,
+            EventKind::SetSetting { key: "volume".into(), value: "999".into() },
+        ));
+
+        // Rejected by the service, so no SettingsState; only our command echoes.
+        let first = timeout(Duration::from_millis(300), probe.recv()).await;
+        if let Ok(Ok(ev)) = first {
+            assert!(
+                matches!(ev.kind, EventKind::SetSetting { .. }),
+                "unexpected SettingsState from invalid command: {:?}",
+                ev.kind
+            );
+        }
+        handle.abort();
+    }
+}
