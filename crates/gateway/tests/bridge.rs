@@ -4,6 +4,7 @@ use dash_bus::Bus;
 use dash_core::{Event, EventKind, MediaAction, ServiceId};
 use dash_media::MediaService;
 use dash_nav::NavService;
+use dash_settings::SettingsService;
 use dash_voice::VoiceService;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
@@ -118,6 +119,39 @@ async fn client_set_destination_drives_nav_end_to_end() {
 
     assert_eq!(frame["source"], "nav");
     assert_eq!(frame["destination"], "Pier 39");
+}
+
+#[tokio::test]
+async fn client_set_setting_drives_settings_end_to_end() {
+    // client -> gateway -> bus -> settings -> bus -> gateway -> client.
+    let bus = Bus::new();
+    dash_settings::spawn(Arc::new(SettingsService::new()), bus.clone());
+    let addr = spawn_gateway(bus.clone()).await;
+
+    let (mut ws, _) = connect_async(format!("ws://{addr}/ws")).await.unwrap();
+    // "07" should come back normalized to "7".
+    ws.send(Message::Text(
+        r#"{ "type": "set_setting", "key": "volume", "value": "07" }"#.into(),
+    ))
+    .await
+    .unwrap();
+
+    let frame = timeout(Duration::from_secs(2), async {
+        loop {
+            if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if v["type"] == "settings_state" {
+                    return v;
+                }
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for settings_state");
+
+    assert_eq!(frame["source"], "settings");
+    assert_eq!(frame["key"], "volume");
+    assert_eq!(frame["value"], "7");
 }
 
 #[tokio::test]
