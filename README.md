@@ -81,3 +81,76 @@ it buys several things:
   logging service) can subscribe without any existing service knowing it exists.
 - **A clean place for the frontend to attach.** The gateway is the *only* crate
   that knows about WebSockets and JSON; the services stay pure domain logic.
+
+---
+
+## Workspace layout
+
+A Cargo workspace of seven crates:
+
+| Crate           | Kind | Responsibility |
+|-----------------|------|----------------|
+| `core`          | lib  | Shared vocabulary: `Event`/`EventKind` (the wire schema), `ServiceId`, `CoreError`. No async, no transport. |
+| `bus`           | lib  | The pub/sub message bus over `tokio::sync::broadcast`; `Bus` + `Subscription`. |
+| `media`         | lib  | Media playback: `v1::MediaApi`, `MediaService`, bus runner. |
+| `voice`         | lib  | NLU front door: `v1::VoiceApi`, transcript → `Intent` parser, bus runner. |
+| `nav`           | lib  | Navigation: `v1::NavApi`, destination state, bus runner. |
+| `settings`      | lib  | Validated key/value store: `v1::SettingsApi`, bus runner. |
+| `gateway`       | bin  | axum WebSocket server bridging the bus to the Flutter app. |
+
+The Flutter app lives in `app/` (macOS desktop target).
+
+Each service crate follows the **same template**, so once you've read one you've
+read them all:
+
+```
+service/
+  error.rs    # the service's own ServiceError (thiserror), wraps CoreError
+  types.rs    # domain types returned by the API
+  api.rs      # pub mod v1 { #[async_trait] pub trait XApi { ... } }
+  service.rs  # the concrete impl + unit tests
+  runner.rs   # subscribe to the bus, react to commands, publish state + tests
+```
+
+### The service API pattern
+
+Every service exposes an `async`, fallible, versioned trait:
+
+```rust
+#[async_trait]
+pub trait MediaApi: Send + Sync {
+    async fn play(&self) -> Result<PlaybackState, ServiceError>;
+    async fn pause(&self) -> Result<PlaybackState, ServiceError>;
+    // ...
+}
+```
+
+- **Versioned** (`v1::MediaApi`) so a future `v2` can coexist with `v1` clients.
+- **`&self`, not `&mut self`**, so an implementation can be shared behind an
+  `Arc` and use interior mutability (a short-lived `std::sync::Mutex` — never
+  held across an `.await`).
+- **`Result<_, ServiceError>` everywhere** — no panics on bad input.
+
+---
+
+## How the gateway bridges Rust and Flutter
+
+The services speak Rust types on an in-process bus; the Flutter app speaks JSON
+over a WebSocket. `dash-gateway` is the single translation layer between them.
+
+For each accepted WebSocket connection the gateway runs two concurrent halves,
+joined with `tokio::select!`:
+
+- **Outbound (bus → client):** subscribes to the bus and serializes every
+  `Event` to a flattened [`ServerEvent`] JSON frame the UI can render.
+- **Inbound (client → bus):** parses each text frame as a [`ClientCommand`] and
+  publishes the corresponding **command** event onto the bus. Malformed frames
+  are logged and ignored — never fatal to the connection.
+
+The bus does the rest: a command published by the gateway is picked up by the
+owning service, which publishes its new state, which the outbound half streams
+back to every connected client. The gateway never contains domain logic — it
+only moves bytes across the Rust/JSON boundary.
+
+[`ServerEvent`]: crates/gateway/src/protocol.rs
+[`ClientCommand`]: crates/gateway/src/protocol.rs
