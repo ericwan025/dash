@@ -1,8 +1,7 @@
-//! Integration test: a real client sends a command through the gateway, the
-//! media service (running on the same bus) reacts, and the resulting state is
-//! streamed back over the WebSocket.
+//! Integration tests for the gateway's bus bridge, in both directions.
 
 use dash_bus::Bus;
+use dash_core::{Event, EventKind, MediaAction, ServiceId};
 use dash_media::MediaService;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
@@ -11,11 +10,9 @@ use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
-/// Boot a gateway whose bus also has the media service running on it.
-async fn spawn_gateway_with_media() -> std::net::SocketAddr {
-    let bus = Bus::new();
-    dash_media::spawn(Arc::new(MediaService::with_demo_tracks()), bus.clone());
-
+/// Boot a gateway on an ephemeral port, returning the address and the bus so the
+/// test can observe/inject events directly.
+async fn spawn_gateway(bus: Bus) -> std::net::SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -25,22 +22,22 @@ async fn spawn_gateway_with_media() -> std::net::SocketAddr {
 }
 
 #[tokio::test]
-async fn client_voice_command_flows_through_to_media_state() {
-    let addr = spawn_gateway_with_media().await;
+async fn bus_event_reaches_client_as_json() {
+    let bus = Bus::new();
+    dash_media::spawn(Arc::new(MediaService::with_demo_tracks()), bus.clone());
+    let addr = spawn_gateway(bus.clone()).await;
+
     let (mut ws, _) = connect_async(format!("ws://{addr}/ws")).await.unwrap();
 
-    // User taps "play": the button sends a voice command.
-    ws.send(Message::Text(
-        r#"{ "type": "voice", "transcript": "play music" }"#.into(),
-    ))
-    .await
-    .unwrap();
+    // Simulate the voice service emitting a media control command.
+    bus.publish(Event::new(
+        ServiceId::Voice,
+        EventKind::MediaControl { action: MediaAction::Play },
+    ));
 
-    // Expect a media_state frame with playing = true to come back.
     let frame = timeout(Duration::from_secs(2), async {
         loop {
-            let msg = ws.next().await.expect("closed").expect("ws error");
-            if let Message::Text(text) = msg {
+            if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
                 let v: serde_json::Value = serde_json::from_str(&text).unwrap();
                 if v["type"] == "media_state" {
                     return v;
@@ -57,32 +54,53 @@ async fn client_voice_command_flows_through_to_media_state() {
 }
 
 #[tokio::test]
-async fn malformed_client_message_does_not_kill_the_connection() {
-    let addr = spawn_gateway_with_media().await;
-    let (mut ws, _) = connect_async(format!("ws://{addr}/ws")).await.unwrap();
+async fn client_command_reaches_the_bus() {
+    let bus = Bus::new();
+    let addr = spawn_gateway(bus.clone()).await;
 
-    // Garbage frame: must be ignored, not fatal.
+    // Observe what the gateway publishes onto the bus.
+    let mut probe = bus.subscribe();
+
+    let (mut ws, _) = connect_async(format!("ws://{addr}/ws")).await.unwrap();
+    ws.send(Message::Text(
+        r#"{ "type": "set_destination", "destination": "Pier 39" }"#.into(),
+    ))
+    .await
+    .unwrap();
+
+    let event = timeout(Duration::from_secs(2), probe.recv())
+        .await
+        .expect("timed out")
+        .unwrap();
+    assert_eq!(event.source, ServiceId::Gateway);
+    assert_eq!(
+        event.kind,
+        EventKind::SetDestination { destination: "Pier 39".into() }
+    );
+}
+
+#[tokio::test]
+async fn malformed_client_message_does_not_kill_the_connection() {
+    let bus = Bus::new();
+    let addr = spawn_gateway(bus.clone()).await;
+    let mut probe = bus.subscribe();
+
+    let (mut ws, _) = connect_async(format!("ws://{addr}/ws")).await.unwrap();
+    // Garbage frame: ignored, not fatal.
     ws.send(Message::Text("not json at all".into())).await.unwrap();
-    // A valid command right after should still work.
+    // A valid command right after must still reach the bus.
     ws.send(Message::Text(
         r#"{ "type": "voice", "transcript": "play" }"#.into(),
     ))
     .await
     .unwrap();
 
-    let got = timeout(Duration::from_secs(2), async {
-        loop {
-            let msg = ws.next().await.expect("closed").expect("ws error");
-            if let Message::Text(text) = msg {
-                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-                if v["type"] == "media_state" {
-                    return v["playing"].as_bool().unwrap();
-                }
-            }
-        }
-    })
-    .await
-    .expect("connection died after malformed frame");
-
-    assert!(got);
+    let event = timeout(Duration::from_secs(2), probe.recv())
+        .await
+        .expect("connection died after malformed frame")
+        .unwrap();
+    assert_eq!(
+        event.kind,
+        EventKind::VoiceCommand { transcript: "play".into() }
+    );
 }

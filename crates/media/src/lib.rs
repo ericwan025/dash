@@ -21,6 +21,6 @@ pub mod types;
 
 pub use api::v1;
 pub use error::ServiceError;
-pub use runner::{interpret_command, run, spawn, MediaCommand};
+pub use runner::{run, spawn};
 pub use service::MediaService;
 pub use types::{PlaybackState, Track};

@@ -55,20 +55,18 @@ pub enum ClientCommand {
 }
 
 impl ClientCommand {
-    /// Translate this command into a bus [`Event`] originating from the
-    /// [`ServiceId::Gateway`].
+    /// Translate this command into a bus **command** [`Event`] originating from
+    /// the [`ServiceId::Gateway`].
     ///
-    /// Note: `SetDestination` / `SetSetting` currently publish the corresponding
-    /// state events directly. Once the nav and settings services exist they will
-    /// own that state; the gateway will then publish a *command* the service
-    /// consumes instead of the state itself.
+    /// Each variant maps to the command event owned by the relevant service, so
+    /// the gateway never publishes state directly — services do that in response.
     pub fn into_event(self) -> Event {
         let kind = match self {
             ClientCommand::Voice { transcript } => EventKind::VoiceCommand { transcript },
             ClientCommand::SetDestination { destination } => {
-                EventKind::NavDestination { destination }
+                EventKind::SetDestination { destination }
             }
-            ClientCommand::SetSetting { key, value } => EventKind::SettingChanged { key, value },
+            ClientCommand::SetSetting { key, value } => EventKind::SetSetting { key, value },
         };
         Event::new(ServiceId::Gateway, kind)
     }

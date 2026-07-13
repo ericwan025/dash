@@ -51,20 +51,69 @@ impl Event {
     }
 }
 
-/// The payload of an [`Event`]. See the module docs for the command/state split.
+/// A media transport action, carried by [`EventKind::MediaControl`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaAction {
+    /// Start or resume playback.
+    Play,
+    /// Pause playback.
+    Pause,
+    /// Skip to the next track.
+    Next,
+}
+
+/// The payload of an [`Event`].
+///
+/// Variants split into two groups, and this split is the backbone of the whole
+/// system:
+///
+/// - **Commands** — a *request* for a service to act. Produced by the frontend
+///   (via the gateway) or by the voice service, and consumed by exactly one
+///   owning service: [`VoiceCommand`](EventKind::VoiceCommand) → voice,
+///   [`MediaControl`](EventKind::MediaControl) → media,
+///   [`SetDestination`](EventKind::SetDestination) → nav,
+///   [`SetSetting`](EventKind::SetSetting) → settings.
+/// - **State** — a *fact* a service announces after acting:
+///   [`MediaState`](EventKind::MediaState), [`NavState`](EventKind::NavState),
+///   [`SettingsState`](EventKind::SettingsState). The gateway relays these to the
+///   UI.
 ///
 /// The `#[serde(tag = "type")]` attribute means each variant serializes with a
 /// `"type"` discriminant field, giving the frontend a single field to switch on.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventKind {
-    /// A parsed voice command that services may act on. Produced by the voice
-    /// service (or injected by the frontend for testing).
+    // ----- Commands -----
+    /// A raw voice utterance for the voice service to interpret, e.g.
+    /// `"play music"`. The voice service turns this into a more specific command
+    /// (like [`MediaControl`](EventKind::MediaControl)).
     VoiceCommand {
-        /// The raw recognized text, e.g. `"play music"`.
+        /// The raw recognized text.
         transcript: String,
     },
 
+    /// A structured request to control media playback. Consumed by media.
+    MediaControl {
+        /// What to do.
+        action: MediaAction,
+    },
+
+    /// A request to set the navigation destination. Consumed by nav.
+    SetDestination {
+        /// Human-readable destination, e.g. `"1600 Amphitheatre Pkwy"`.
+        destination: String,
+    },
+
+    /// A request to change a user setting. Consumed by settings.
+    SetSetting {
+        /// Setting key, e.g. `"volume"` or `"theme"`.
+        key: String,
+        /// New value, serialized as a string for schema simplicity.
+        value: String,
+    },
+
+    // ----- State -----
     /// Media playback state changed. Produced by the media service.
     MediaState {
         /// Whether audio is currently playing.
@@ -73,17 +122,17 @@ pub enum EventKind {
         track: Option<String>,
     },
 
-    /// A navigation destination was set. Produced by the nav service.
-    NavDestination {
-        /// Human-readable destination, e.g. `"1600 Amphitheatre Pkwy"`.
-        destination: String,
+    /// Navigation state changed. Produced by the nav service.
+    NavState {
+        /// The active destination, or `None` if navigation is idle.
+        destination: Option<String>,
     },
 
-    /// A user setting changed. Produced by the settings service.
-    SettingChanged {
-        /// Setting key, e.g. `"volume"` or `"theme"`.
+    /// A user setting's value changed. Produced by the settings service.
+    SettingsState {
+        /// Setting key.
         key: String,
-        /// New value, serialized as a string for schema simplicity.
+        /// New value.
         value: String,
     },
 }

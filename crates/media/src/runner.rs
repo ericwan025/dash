@@ -1,61 +1,24 @@
-//! Bus integration: react to voice commands and announce media state.
+//! Bus integration: react to media control commands and announce media state.
 //!
-//! This module is the media service's connection to the rest of the system. It
-//! subscribes to the [`Bus`], watches for
-//! [`VoiceCommand`](dash_core::EventKind::VoiceCommand) events, interprets the
-//! transcript into a media action, runs it through the
+//! This module connects the media service to the bus. It subscribes, watches for
+//! [`MediaControl`](dash_core::EventKind::MediaControl) commands (produced by the
+//! voice service or the gateway), runs them through the
 //! [`v1::MediaApi`](crate::v1::MediaApi), and publishes the resulting
-//! [`MediaState`](dash_core::EventKind::MediaState) back onto the bus for anyone
-//! else (notably the gateway → frontend) to observe.
+//! [`MediaState`](dash_core::EventKind::MediaState) back onto the bus.
 //!
-//! Keeping this loop separate from [`MediaService`](crate::MediaService) keeps
-//! the API pure: the service knows nothing about the bus, and the bus loop knows
-//! nothing about the internals of playback.
+//! Natural-language parsing lives in the voice service, not here — media only
+//! ever sees an already-structured [`MediaAction`].
 
 use crate::api::v1::MediaApi;
 use crate::service::MediaService;
 use dash_bus::{Bus, Subscription};
-use dash_core::{CoreError, Event, EventKind, ServiceId};
+use dash_core::{CoreError, Event, EventKind, MediaAction, ServiceId};
 use std::sync::Arc;
-
-/// A media action distilled from a natural-language voice transcript.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MediaCommand {
-    /// Start / resume playback.
-    Play,
-    /// Pause playback.
-    Pause,
-    /// Skip to the next track.
-    Next,
-}
-
-/// Interpret a raw voice transcript into a [`MediaCommand`], if it refers to one.
-///
-/// This is intentionally a tiny keyword matcher — real speech-to-intent lives in
-/// the voice service. It is public and pure so it can be unit-tested directly.
-///
-/// Returns `None` for transcripts that aren't media commands, so the runner can
-/// ignore them.
-pub fn interpret_command(transcript: &str) -> Option<MediaCommand> {
-    let t = transcript.to_lowercase();
-    // Order matters: check "pause"/"stop" and "next"/"skip" before the broad
-    // "play" match so "stop playing" doesn't read as Play.
-    if t.contains("pause") || t.contains("stop") {
-        Some(MediaCommand::Pause)
-    } else if t.contains("next") || t.contains("skip") {
-        Some(MediaCommand::Next)
-    } else if t.contains("play") {
-        Some(MediaCommand::Play)
-    } else {
-        None
-    }
-}
 
 /// Subscribe to `bus` and spawn the media loop, returning its join handle.
 ///
-/// This is the convenient entry point for wiring up the service: it creates the
-/// [`Subscription`] **synchronously** (so no event published after this call can
-/// be missed) and then spawns [`run`] onto the tokio runtime.
+/// Creates the [`Subscription`] **synchronously** (so no event published after
+/// this call can be missed) and then spawns [`run`] onto the tokio runtime.
 pub fn spawn(service: Arc<MediaService>, bus: Bus) -> tokio::task::JoinHandle<Result<(), CoreError>> {
     let sub = bus.subscribe();
     tokio::spawn(run(service, bus, sub))
@@ -63,16 +26,13 @@ pub fn spawn(service: Arc<MediaService>, bus: Bus) -> tokio::task::JoinHandle<Re
 
 /// Run the media service's bus loop until the bus is closed.
 ///
-/// For every [`VoiceCommand`] on `sub` that maps to a [`MediaCommand`], executes
-/// it against `service` and publishes the resulting [`MediaState`] on `bus`.
-/// Errors from the service (e.g. an empty playlist) are logged to stderr and
-/// skipped — one bad command must not take the loop down.
+/// For every [`MediaControl`](EventKind::MediaControl) on `sub`, executes the
+/// action against `service` and publishes the resulting
+/// [`MediaState`](EventKind::MediaState) on `bus`. Service errors (e.g. an empty
+/// playlist) are logged to stderr and skipped — one bad command must not take the
+/// loop down.
 ///
-/// The caller supplies `sub` so the subscription can be established before any
-/// commands are published; use [`spawn`] if you don't need that control.
-///
-/// Returns `Ok(())` when the bus closes (all senders dropped), or an error only
-/// on an unexpected non-recoverable condition.
+/// Returns `Ok(())` when the bus closes (all senders dropped).
 pub async fn run(
     service: Arc<MediaService>,
     bus: Bus,
@@ -82,7 +42,6 @@ pub async fn run(
         let event = match sub.recv().await {
             Ok(ev) => ev,
             Err(CoreError::BusClosed) => return Ok(()),
-            // A lagging subscriber isn't fatal; keep going with newer events.
             Err(CoreError::Lagged(n)) => {
                 eprintln!("[media] lagged, skipped {n} event(s)");
                 continue;
@@ -90,20 +49,16 @@ pub async fn run(
             Err(e) => return Err(e),
         };
 
-        // Only voice commands drive the media service.
-        let transcript = match &event.kind {
-            EventKind::VoiceCommand { transcript } => transcript,
+        // Only structured media control commands drive the service.
+        let action = match event.kind {
+            EventKind::MediaControl { action } => action,
             _ => continue,
         };
 
-        let Some(command) = interpret_command(transcript) else {
-            continue;
-        };
-
-        let result = match command {
-            MediaCommand::Play => service.play().await,
-            MediaCommand::Pause => service.pause().await,
-            MediaCommand::Next => service.next_track().await,
+        let result = match action {
+            MediaAction::Play => service.play().await,
+            MediaAction::Pause => service.pause().await,
+            MediaAction::Next => service.next_track().await,
         };
 
         match result {
@@ -116,7 +71,7 @@ pub async fn run(
                     },
                 ));
             }
-            Err(e) => eprintln!("[media] command {command:?} failed: {e}"),
+            Err(e) => eprintln!("[media] action {action:?} failed: {e}"),
         }
     }
 }
@@ -127,43 +82,23 @@ mod tests {
     use std::time::Duration;
     use tokio::time::timeout;
 
-    #[test]
-    fn interpret_recognizes_media_commands() {
-        assert_eq!(interpret_command("play music"), Some(MediaCommand::Play));
-        assert_eq!(interpret_command("PLAY"), Some(MediaCommand::Play));
-        assert_eq!(interpret_command("pause"), Some(MediaCommand::Pause));
-        assert_eq!(interpret_command("stop the music"), Some(MediaCommand::Pause));
-        assert_eq!(interpret_command("next track"), Some(MediaCommand::Next));
-        assert_eq!(interpret_command("skip"), Some(MediaCommand::Next));
-    }
-
-    #[test]
-    fn interpret_ignores_unrelated_transcripts() {
-        assert_eq!(interpret_command("navigate home"), None);
-        assert_eq!(interpret_command(""), None);
+    fn control(action: MediaAction) -> Event {
+        Event::new(ServiceId::Voice, EventKind::MediaControl { action })
     }
 
     #[tokio::test]
-    async fn voice_play_command_produces_media_state_on_bus() {
+    async fn media_control_play_produces_media_state_on_bus() {
         let bus = Bus::new();
         let service = Arc::new(MediaService::with_demo_tracks());
 
         // Probe subscribes BEFORE the command is published so it sees the result.
         let mut probe = bus.subscribe();
 
-        // Spawn the media loop; `spawn` subscribes synchronously, so the command
-        // published just below cannot be missed.
+        // `spawn` subscribes synchronously, so the command below can't be missed.
         let handle = spawn(service, bus.clone());
 
-        // Simulate the voice service emitting a parsed command.
-        bus.publish(Event::new(
-            ServiceId::Voice,
-            EventKind::VoiceCommand {
-                transcript: "play music".into(),
-            },
-        ));
+        bus.publish(control(MediaAction::Play));
 
-        // The probe should eventually see a MediaState with playing = true.
         let state = timeout(Duration::from_secs(1), async {
             loop {
                 let ev = probe.recv().await.unwrap();
@@ -177,6 +112,36 @@ mod tests {
         .expect("timed out waiting for MediaState");
 
         assert_eq!(state, (true, Some("Highway Star".to_string())));
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn non_media_events_are_ignored() {
+        let bus = Bus::new();
+        let service = Arc::new(MediaService::with_demo_tracks());
+        let mut probe = bus.subscribe();
+        let handle = spawn(service, bus.clone());
+
+        // A voice command is not a media control command; media must ignore it.
+        bus.publish(Event::new(
+            ServiceId::Voice,
+            EventKind::VoiceCommand { transcript: "play music".into() },
+        ));
+        // Then a real control command; media should react only to this one.
+        bus.publish(control(MediaAction::Pause));
+
+        // The only MediaState the media service emits should be from the Pause.
+        let playing = timeout(Duration::from_secs(1), async {
+            loop {
+                let ev = probe.recv().await.unwrap();
+                if let EventKind::MediaState { playing, .. } = ev.kind {
+                    return playing;
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for MediaState");
+        assert!(!playing);
         handle.abort();
     }
 }

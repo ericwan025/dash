@@ -19,5 +19,5 @@ pub mod event;
 pub mod ids;
 
 pub use error::CoreError;
-pub use event::{Event, EventKind};
+pub use event::{Event, EventKind, MediaAction};
 pub use ids::ServiceId;
