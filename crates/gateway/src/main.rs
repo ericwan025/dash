@@ -7,6 +7,7 @@
 
 use dash_bus::Bus;
 use dash_media::MediaService;
+use dash_voice::VoiceService;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -19,9 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The single bus every service and every client connection shares.
     let bus = Bus::new();
 
-    // Start the media service loop on the bus.
-    let media = Arc::new(MediaService::with_demo_tracks());
-    dash_media::spawn(media, bus.clone());
+    // Start the services on the bus.
+    // Voice turns raw transcripts into structured commands; media reacts to them.
+    dash_voice::spawn(Arc::new(VoiceService::new()), bus.clone());
+    dash_media::spawn(Arc::new(MediaService::with_demo_tracks()), bus.clone());
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("dash-gateway listening on ws://{addr}/ws  (health: http://{addr}/healthz)");
