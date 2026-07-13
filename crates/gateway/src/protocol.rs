@@ -91,7 +91,7 @@ pub struct ServerEvent {
 impl From<Event> for ServerEvent {
     fn from(event: Event) -> Self {
         ServerEvent {
-            source: event.source,
+            source: event.sourc,
             ts_millis: event.ts_millis,
             kind: event.kind,
         }
