@@ -3,6 +3,7 @@
 use dash_bus::Bus;
 use dash_core::{Event, EventKind, MediaAction, ServiceId};
 use dash_media::MediaService;
+use dash_nav::NavService;
 use dash_voice::VoiceService;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
@@ -86,6 +87,37 @@ async fn client_voice_command_drives_media_end_to_end() {
 
     assert_eq!(frame["playing"], true);
     assert_eq!(frame["track"], "Highway Star");
+}
+
+#[tokio::test]
+async fn client_set_destination_drives_nav_end_to_end() {
+    // client -> gateway -> bus -> nav -> bus -> gateway -> client.
+    let bus = Bus::new();
+    dash_nav::spawn(Arc::new(NavService::new()), bus.clone());
+    let addr = spawn_gateway(bus.clone()).await;
+
+    let (mut ws, _) = connect_async(format!("ws://{addr}/ws")).await.unwrap();
+    ws.send(Message::Text(
+        r#"{ "type": "set_destination", "destination": "Pier 39" }"#.into(),
+    ))
+    .await
+    .unwrap();
+
+    let frame = timeout(Duration::from_secs(2), async {
+        loop {
+            if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if v["type"] == "nav_state" {
+                    return v;
+                }
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for nav_state");
+
+    assert_eq!(frame["source"], "nav");
+    assert_eq!(frame["destination"], "Pier 39");
 }
 
 #[tokio::test]
