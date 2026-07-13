@@ -74,7 +74,7 @@ class _DashHomeState extends State<DashHome> {
           _playing = event['playing'] == true;
           _track = event['track'] as String?;
           break;
-        case 'nav_destination':
+        case 'nav_state':
           _destination = event['destination'] as String?;
           break;
         case 'setting_changed':
