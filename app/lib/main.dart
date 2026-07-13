@@ -77,7 +77,7 @@ class _DashHomeState extends State<DashHome> {
         case 'nav_state':
           _destination = event['destination'] as String?;
           break;
-        case 'setting_changed':
+        case 'settings_state':
           final key = event['key'] as String?;
           final value = event['value'] as String?;
           if (key != null && value != null) _settings[key] = value;
