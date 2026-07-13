@@ -154,3 +154,69 @@ only moves bytes across the Rust/JSON boundary.
 
 [`ServerEvent`]: crates/gateway/src/protocol.rs
 [`ClientCommand`]: crates/gateway/src/protocol.rs
+
+---
+
+## JSON message schema
+
+All frames are JSON objects tagged with a `"type"` field.
+
+**Client → server** (`ClientCommand`):
+
+```json
+{ "type": "voice",           "transcript": "play music" }
+{ "type": "set_destination", "destination": "1600 Amphitheatre Pkwy" }
+{ "type": "set_setting",     "key": "volume", "value": "7" }
+```
+
+The play/pause/next buttons send `voice` transcripts, so they exercise the same
+NLU path spoken commands would.
+
+**Server → client** (`ServerEvent`, a flattened bus event):
+
+```json
+{ "source": "media",    "ts_millis": 1720000000000, "type": "media_state",    "playing": true, "track": "Highway Star" }
+{ "source": "nav",      "ts_millis": 1720000000000, "type": "nav_state",      "destination": "Pier 39" }
+{ "source": "settings", "ts_millis": 1720000000000, "type": "settings_state", "key": "volume", "value": "7" }
+```
+
+---
+
+## Running everything
+
+**Prerequisites:** a Rust toolchain (via [rustup]) and [Flutter] with macOS
+desktop support.
+
+**1. Start the backend** (gateway + all four services on one bus):
+
+```sh
+cargo run -p dash-gateway
+# dash-gateway listening on ws://127.0.0.1:8080/ws  (health: http://127.0.0.1:8080/healthz)
+```
+
+The bind address can be overridden with `DASH_GATEWAY_ADDR`.
+
+**2. Start the Flutter app** (in another terminal):
+
+```sh
+cd app
+flutter run -d macos
+```
+
+The connection pill turns **connected**; tapping Play, entering a destination,
+or changing a setting sends a command and the dashboard updates live from the
+state the services publish back.
+
+## Tests and benchmark
+
+```sh
+cargo test              # all Rust unit + integration tests
+cargo bench -p dash-bus # publish -> subscriber latency (avg + percentiles)
+cd app && flutter test  # Flutter widget test
+```
+
+The bus latency benchmark reports average, min, and p50/p90/p99/max for
+in-process publish → subscriber delivery.
+
+[rustup]: https://rustup.rs
+[Flutter]: https://docs.flutter.dev/get-started/install
